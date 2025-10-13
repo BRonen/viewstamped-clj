@@ -1,0 +1,6 @@
+* ViewStamped Replication revisited
+
+[WIP]
+
+** References
+- http://pmg.csail.mit.edu/papers/vr-revisited.pdf
