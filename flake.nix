@@ -9,7 +9,7 @@
       let pkgs = import nixpkgs { inherit system; };
       in {
         defaultPackage = pkgs.mkShell {
-          name = "clj-jq";
+          name = "viewstamped-clj";
           buildInputs = with pkgs;[ clojure ];
         };
       }
