@@ -47,12 +47,13 @@
 
 #_(map deref replicas)
 
+(def timer-future (atom nil))
+
 (declare cast!)
 (declare broadcast!)
 
 (defn handle-messages
   [{:keys [self message send-response] :as args}]
-  (def wasd args)
   (letfn [(mrequest []
             (let [{:keys [client-id
                           request-number]} message
@@ -75,16 +76,27 @@
                                       :configuration
                                       count
                                       get-quorum-size)
+                      _           (swap! timer-future
+                                         #(when % (future-cancel %)))
                       result      (broadcast! {:from-id    (:replica-number self)
                                                :message    {:type          :prepare
                                                             :view-number   (:view-number self)
                                                             :operation     message
-                                                            :op-number     (:op-number self)
+                                                            :op-number     (:op-number new-self)
                                                             :commit-number (:commit-number self)}
                                                :timeout-ms 10000})]
-                  (def result2 result)
+
+                  (def resultwadaw result)
                   (if (-> result :type (= :success))
                     (do (prn "executing a message from primary> " message)
+                        (reset! timer-future
+                                (future
+                                  (Thread/sleep 5000)
+                                  (broadcast! {:from-id    (:replica-number self)
+                                               :message    {:type          :commit
+                                                            :view-number   (:view-number self)
+                                                            :commit-number (:commit-number self)}
+                                               :timeout-ms 5000})))
                         (send-response {:type           :reply
                                         :view-number    (:view-number self)
                                         :request-number request-number
@@ -110,21 +122,32 @@
                           op-number
                           operation
                           commit-number]} message
-                  next-operation?         true #_ (-> self :op-number inc (= op-number))]
-              (if-not next-operation?
-                (do (send-response {:type  :error
-                                    :error "outdated state"})
-                    ;; TODO state transfer
-                    self)
+                  self                    (assoc self :commit-number commit-number)
+                  next-operation?         (-> self :op-number inc (= op-number))]
+              (if next-operation?
                 (let [self (-> self
-                               #_(update :op-number inc)
+                               (update :op-number inc)
                                (update :log conj operation)
                                (assoc-in [:client-table
                                           (:client-id operation)
                                           :request-number]
                                          (:request-number operation)))]
                   (send-response {:type :prepare-ok})
-                  self))))
+                  self)
+                (do (send-response {:type  :error
+                                    :error "outdated state"})
+                    ;; TODO state transfer
+                    self))))
+          (mcommit []
+            (let [{:keys [view-number
+                          commit-number]} message
+                  same-view?              (-> self :view-number (= view-number))
+                  correct-commit?         (-> self :op-number (>= commit-number))]
+              (if (and same-view? correct-commit?)
+                (do (send-response {:type :commit-ok})
+                    (assoc self :commit-number commit-number))
+                ;; TODO view-change OR state-transfer
+                )))
           (mexcept []
             (send-response {:type  :error
                             :error (str "replica["
@@ -135,6 +158,7 @@
     (case (:type message)
       :request (mrequest)
       :prepare (mprepare)
+      :commit  (mcommit)
       (mexcept))))
 
 (defn cast!
@@ -167,7 +191,6 @@
    and then return the responses.
 
   If the replicas don't respond before `timeout-ms`, an `error` is returned."
-  (def wasdw2 args)
   (let [quorum-size     (-> replicas-size get-quorum-size dec)
         quorum-promise? (promise)
         responses       (atom [])]
@@ -222,13 +245,13 @@
          :error     :unexpected
          :responses @responses}))))
 
-;; to-id message timeout-ms
 #_(def temp (cast! {:to-id      0
                     :message    {:type           :request
-                                 :operation      "something TODO"
+                                 :operation      "something TODO 3"
                                  :client-id      1
-                                 :request-number 1}
-                    :timeout-ms 5000}))
+                                 :request-number 3}
+                    :timeout-ms 10000}))
 #_(-> temp)
-#_(ns-unmap (find-ns 'bronen.viewstamped) 'foo)
+#_(resultwadaw)
+#_(ns-unmap (find-ns 'bronen.viewstamped) 'resultwadaw)
 #_(mapv deref replicas)
